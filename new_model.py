@@ -43,8 +43,10 @@ class SingleNetwork(nn.Module):
                               kernel_size=3, stride=1, padding=1, bias=bias))
 
         body = []
+        # for _ in range(self.num_block):
+        #     body.append(ResBlock(self.num_feature, bias=bias, act=act))
         for _ in range(self.num_block):
-            body.append(ResBlock(self.num_feature, bias=bias, act=act))
+            body.append(NAFBlock(self.num_feature))
         body.append(nn.Conv2d(in_channels=self.num_feature, out_channels=self.num_feature,
                               kernel_size=3, stride=1, padding=1, bias=bias))
 
@@ -109,7 +111,7 @@ class ResBlock(nn.Module):
                 modules_body.append(nn.BatchNorm2d(num_feature))
             if i == 0:
                 modules_body.append(act)
-        # self.ca = CALayer(num_feature)
+        self.ca = CALayer(num_feature)
         self.body = nn.Sequential(*modules_body)
         self.res_scale = res_scale
 
@@ -118,7 +120,7 @@ class ResBlock(nn.Module):
             res = self.body(x).mul(self.res_scale)
         else:
             res = self.body(x)
-        # res = self.ca(res)
+        res = self.ca(res)
         res += x
 
         return res
@@ -154,7 +156,6 @@ class UpSampler(nn.Sequential):
     def forward(self, x):
         return self.upsampler(x)
 
-
 ## Channel Attention (CA) Layer
 class CALayer(nn.Module):
     def __init__(self, channel, reduction=16):
@@ -173,7 +174,6 @@ class CALayer(nn.Module):
         y = self.avg_pool(x)
         y = self.conv_du(y)
         return x * y
-
 
 class CSAM_Module(nn.Module):
     """ Channel-Spatial attention module"""
@@ -226,3 +226,78 @@ class Layer_Attention_Module(nn.Module):
         attention_feature = self.scale * attention_feature + feature_group
         b, n, c, h, w = attention_feature.size()
         return self.conv(attention_feature.view(b, n * c, h, w))
+
+
+## NFA BLOCK
+class NAFBlock(nn.Module):
+    def __init__(self, c, kernel_size=3 ):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels=c, out_channels=c*2, kernel_size=kernel_size, padding=(kernel_size // 2),
+                               stride=1, groups=1,
+                               bias=True)
+        self.conv2 = nn.Conv2d(in_channels=c*2, out_channels=c, kernel_size=kernel_size, padding=(kernel_size // 2),
+                               stride=1,
+                               groups=1,
+                               bias=True)
+        self.conv3 = nn.Conv2d(in_channels=c, out_channels=c, kernel_size=kernel_size, padding=(kernel_size // 2), stride=1,
+                               groups=1, bias=True)
+
+        # Simplified Channel Attention
+        # self.sca = nn.Sequential(
+        #     nn.AdaptiveAvgPool2d(1),
+        #     nn.Conv2d(in_channels=dw_channel // 2, out_channels=dw_channel // 2, kernel_size=1, padding=0, stride=1,
+        #               groups=1, bias=True),
+        # )
+        self.sca = CALayer(c)
+        # self.res = ResBlock(dw_channel, bias=True, act=nn.ReLU(True))
+        # SimpleGate
+        # self.sg = SimpleGate(2*c)
+
+        self.conv4 = nn.Conv2d(in_channels=c, out_channels=c, kernel_size=kernel_size, padding=(kernel_size // 2),
+                               stride=1,
+                               bias=True)
+        self.conv5 = nn.Conv2d(in_channels=c, out_channels=c, kernel_size=kernel_size, padding=(kernel_size // 2),
+                               stride=1,
+                                bias=True)
+        # self.conv4 = nn.Conv2d(in_channels=c, out_channels=2*c, kernel_size=kernel_size, stride=1,
+        #           padding=(kernel_size // 2), bias=True)
+        # self.conv5 = nn.Conv2d(in_channels=c, out_channels=c, kernel_size=kernel_size, stride=1,
+        #                        padding=(kernel_size // 2), bias=True)
+        # self.dropout1 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
+        # self.dropout2 = nn.Dropout(drop_out_rate) if drop_out_rate > 0. else nn.Identity()
+
+        # self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+        # self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+
+    def forward(self, inp):
+        x = inp
+
+        x = self.conv1(x)
+        x = self.conv2(x)
+        # x = self.res(x)
+        # x = self.sg(x)
+        # x = self.sca(x)
+        # x = x * self.sca(x)
+        x = self.conv3(x)
+        x = self.sca(x)
+        # x = self.dropout1(x)
+
+        # y = inp + x * self.beta
+        y = inp+x
+        x = self.conv4(y)
+        # x = self.sg(x)
+        x = self.conv5(x)
+        # # x = self.dropout2(x)
+        #
+        # # return y + x * self.gamma
+        return y+x
+
+class SimpleGate(nn.Module):
+    def __init__(self, c):
+        super().__init__()
+        # self.res = ResBlock(c, bias=True, act=nn.ReLU(True))
+    def forward(self, x):
+        x1, x2 = x.chunk(2, dim=1)
+        # x1 = self.res(x1)
+        # x2 = self.res(x2)
+        return x1 * x2
