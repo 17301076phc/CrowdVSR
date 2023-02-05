@@ -103,7 +103,7 @@ class edgeSR_TR(nn.Module):
         self.pixel_shuffle = nn.PixelShuffle(self.stride[0]) # [batch,r^2c,h,w]->[batch,c,rh,rw]
         self.softmax = nn.Softmax(dim=1)
         self.filter = nn.Conv2d(
-            in_channels=3, # 1
+            in_channels=48, # 1
             out_channels=9*self.stride[0]*self.stride[1]*self.channels,
             # out_channels=3*self.stride[0]*self.stride[1]*self.channels,
             kernel_size=self.kernel_size,
@@ -220,9 +220,9 @@ class ENetwork(nn.Module):
         parse = self.model_id.split('_')
 
         self.scale = (int([s for s in parse if s.startswith('s')][0][1:]),) * 2
-
+        self.c = 48
         self.layer=edgeSR_TR(model_id=model_id)
-        self.rca = RCABlock(64)
+        self.rca = RCABlock(self.c)
 
         # upscale=[]
         # scale = self.scale[0]
@@ -238,17 +238,16 @@ class ENetwork(nn.Module):
         #     upscale.append(nn.PixelShuffle(3))
         # self.headupscale = nn.Sequential(*upscale)
 
-
         head = []
-        head.append(nn.Conv2d(in_channels=3, out_channels=64,
+        head.append(nn.Conv2d(in_channels=3, out_channels=self.c,
                               kernel_size=3, stride=1, padding=1))
-        head.append(nn.Conv2d(in_channels=64, out_channels=64,
+        head.append(nn.Conv2d(in_channels=self.c, out_channels=self.c,
                               kernel_size=3, stride=1, padding=1))
 
         body = []
-        for _ in range(2):
+        for _ in range(8):
             body.append(self.rca)
-        body.append(nn.Conv2d(in_channels=64, out_channels=3,
+        body.append(nn.Conv2d(in_channels=self.c, out_channels=self.c,
                               kernel_size=3, stride=1, padding=1))
 
         tail = []
@@ -261,6 +260,7 @@ class ENetwork(nn.Module):
     def forward(self, x):
         x = self.head(x)
         res = self.body(x)
+        res+=x
         x = self.tail(res)
         return x
 
