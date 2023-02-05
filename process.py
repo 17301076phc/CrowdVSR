@@ -31,17 +31,18 @@ def load_model():
     model = model.to(torch.device('cuda'))
 
     # model_path = 'model/div2k_x3.pth'
-    # model_path = 'model/div2k_x3_sp.pth'
     # model_path = 'model/div2k_x2.pth'
-    model_path = 'our_model/naf_x2.pth'
-    # model_path = 'our_model/naf_x3.pth'
+    # model_path = 'model/div2k_x4.pth'
+
+    # model_path = 'our_model/naf_x2.pth'
+    model_path = 'our_model/naf_x3.pth'
     # model_path = 'our_model/naf_x4.pth'
 
     if not Path(model_path).exists():
         print('model not exists')
         exit(-1)
 
-    model.load_state_dict(torch.load(model_path),strict=False)
+    model.load_state_dict(torch.load(model_path))
     # print(model.state_dict().keys())
     # for name, value in model.named_parameters():
     #     # print(name)
@@ -53,9 +54,20 @@ def load_model():
 
 def load_e_model():
     from e_model_files.e_model import ENetwork
-    model = ENetwork("eSR-TR_s2_K3_C16")
+    # model = ENetwork("eSR-TR_s2_K3_C4")
+    # model = ENetwork("eSR-TR_s2_K3_C8")
+    # model = ENetwork("eSR-TR_s2_K3_C1")
+    model = ENetwork("eSR-TR_s2_K3_C3")
+
+
     model = model.to(torch.device('cuda'))
-    model_path = 'e_model_files/e_model/eSR-TR_s2_K3_C16.pth'
+    # model_path = 'e_model_files/e_model/eSR-TR_s2_K3_C16.pth'
+    # model_path = 'e_model_files/e_model/eSR-TR_s2_K3_C8.pth'
+    # model_path = 'e_model_files/e_model/eSR-TR_s2_K3_C4.pth'
+    # model_path = 'e_model_files/e_model/eSR-TR_s2_K3_C1.pth'
+    model_path = 'e_model_files/e_model/eSR-TR_s2_K3_C3.pth'
+
+
     if not Path(model_path).exists():
         print('model not exists')
         exit(-1)
@@ -72,7 +84,7 @@ def train_one_epoch(model, loader, scale):
     loss_fn = nn.L1Loss()
     # loss_fn = nn.MSELoss()
     # x2  lr=1e-7   x3 lr=1e-6
-    optimizer = torch.optim.Adam(model.networks[scale - 1].parameters(), lr=1e-7, weight_decay=0)
+    optimizer = torch.optim.Adam(model.networks[scale - 1].parameters(), lr=1e-6, weight_decay=0)
     avg_loss = []
     for iteration, data in enumerate(loader, 1):
         input_tensor, target_tensor = data[0].cuda(), data[1].cuda()
@@ -88,9 +100,10 @@ def train_one_epoch_emodel(model, loader, scale):
 
     model.train()
     loss_fn = nn.L1Loss()
+    # loss_fn = nn.SmoothL1Loss()
     # loss_fn = nn.MSELoss()
     # x2  lr=1e-7   x3 lr=1e-6
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-7, weight_decay=0)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-8, weight_decay=0)
     avg_loss = []
     for iteration, data in enumerate(loader, 1):
         input_tensor, target_tensor = data[0].cuda(), data[1].cuda()

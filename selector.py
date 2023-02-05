@@ -30,9 +30,10 @@ class Selector:
     def __init__(self):
         self.sample_rate = 1
         self.scale = 3
-        self.patch_size = 64 #64
+        self.patch_size = 48 #64
 
-        self.candidates = list(Path(args.candidates).iterdir())
+        # self.candidates = list(Path(args.candidates).iterdir())
+        self.candidates = list(Path("online_data").iterdir())
         self.candidate_pts_range = 3
         self.reference_patch_length = 8
         self.candidate_patch_length = 128
@@ -72,11 +73,13 @@ class Selector:
         reference_patches = [cv2.cvtColor(x, cv2.COLOR_RGB2BGR) for x in reference_patches]
         # print(self.candidates)
         try:
-            for candidate in self.candidates:
-                for i in range(max(0, pts - self.candidate_pts_range), pts):
+            # for candidate in self.candidates:
+                # for i in range(max(0, pts - self.candidate_pts_range), pts):
+                for i in range(len(self.candidates)):
                 # l = len( list(Path(candidate).iterdir()))
                 # for i in range(0,l,100):
-                    filename = candidate / f'{str(i).zfill(4)}.png'
+                #     filename = candidate / f'{str(i).zfill(4)}.png'
+                    filename = "online_data/" +f'{str(i).zfill(4)}.png'
                     # print(filename)
                     hr = cv2.cvtColor(cv2.imread(str(filename)), cv2.COLOR_BGR2RGB)
                     # hr = cv2.imread(str(filename))
@@ -123,16 +126,18 @@ class Selector:
 
 class RandomSelector:
     def __init__(self):
-        self.candidates = list(Path(args.candidates).iterdir())
-        self.patch_size = 64 # 64
+        # self.candidates = list(Path(args.candidates).iterdir())
+        self.candidates = list(Path("online_data").iterdir())
+        self.patch_size = 48 # 64
         self.scale = 3
 
     def select_patch(self) -> (np.ndarray, np.ndarray):
-        candidate = self.candidates[random.randrange(0, len(self.candidates))]
-        candidate_size = len(list(candidate.iterdir()))
-        frame_id = random.randrange(0, candidate_size)#  high resolution frames
+        # candidate = self.candidates[random.randrange(0, len(self.candidates))]
+        # candidate_size = len(list(candidate.iterdir()))
+        candidate_size=len(self.candidates)
+        frame_id = random.randrange(0, candidate_size-1)#  high resolution frames
         # print(str(candidate / f'{str(frame_id).zfill(4)}.png'))
-        frame = cv2.imread(str(candidate / f'{str(frame_id).zfill(4)}.png'))
+        frame = cv2.imread(str("online_data/" + f'{str(frame_id).zfill(4)}.png'))
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         # if not frame:
         #     print(str(candidate / f'{str(frame_id).zfill(4)}.png'))
@@ -174,10 +179,10 @@ class RandomSelector:
         return patches
 
 class CandidatesSelector:
-    def __init__(self):
+    def __init__(self,scale):
         self.candidates = list(Path(args.candidates).iterdir())
-        self.patch_size = 64 # 64
-        self.scale = 2
+        self.patch_size = 48 # 64
+        self.scale = scale
         self.candidate_patch_length = 128
         self.reference_patch_length = 10
         self.candidate_pts_range = 30
@@ -314,36 +319,88 @@ class CandidatesSelector:
 
         return patches
 
-class RandomSelector2:
-    def __init__(self):
-        self.candidates = list(Path(args.candidates).iterdir())
-        self.patch_size = 64 # 64
-        self.scale = 2
+    def online_data_select_patches(self,reference_frame,pts,h) -> List[Tuple[np.ndarray, np.ndarray]]:
+        patch_size = self.patch_size
+        scale = self.scale
+        reference_patches = self._select_reference_patch(reference_frame,h)
+        # reference_patches = [cv2.cvtColor(x, cv2.COLOR_RGB2BGR) for x in reference_patches]
+        # for r in range(len(reference_patches)):
+        #     Image.fromarray(reference_patches[r]).save("selector_patches/" + str(r) + ".png")
+        start = time.time()
+        table = []
+        apath = "online_data"
+        l = len(list(Path(apath).iterdir()))
+        # print(l)
+        for i in range(l):
+            filename = apath + f'/{str(i).zfill(4)}.png'
+                # print(filename)
+            hr = cv2.cvtColor(cv2.imread(str(filename)), cv2.COLOR_BGR2RGB)
+            hr = hr[:hr.shape[0] // scale * scale, :hr.shape[1] // scale * scale]
+            # lr = cv2.cvtColor(cv2.imread(str(lr_filename)), cv2.COLOR_BGR2RGB)
+            # img = Image.fromarray(hr.astype('uint8'))
+            # lr = np.array(img.resize((480, 270), resample=Image.BICUBIC))
+            lr = cv2.resize(hr, (hr.shape[1]//scale, hr.shape[0]//scale), interpolation=cv2.INTER_CUBIC)
 
-    def select_patch(self) -> (np.ndarray, np.ndarray):
+            # patch_hash_table = json.loads(
+            #     open("online_data_patch_x2" + f'/{str(i).zfill(4)}.txt').read())
+            patch_hash_table = json.loads(
+                open("online_data_patch_x"+ str(self.scale)+ f'/{str(i).zfill(4)}.txt').read())
+            # print("len(patch_hash_table) is ",len(patch_hash_table))
+            ran = len(patch_hash_table)
+            # print(ran)
+            if len(patch_hash_table)>50:#x2  50, x3 50
+                # ran=60 # x2
+                ran=50
+
+            for j in range(ran):
+                item = j
+                # item = random.randrange(0,int(len(patch_hash_table)*0.1))
+                try:
+                    xy = patch_hash_table[item]['xy']
+                except:
+                    print(f'/{str(i).zfill(4)}.txt')
+
+                lr_i = lr[xy[0]: xy[0] + patch_size, xy[1]:xy[1] + patch_size]
+                hr_i = hr[xy[0] * scale:xy[0] * scale + patch_size * scale,
+                       xy[1] * scale:xy[1] * scale + patch_size * scale]
+                table.append((lr_i,hr_i))
+
+        end = time.time()
+        print("creating table cost: ",end-start)
+
+        patch_queue = queue.PriorityQueue()
+        for ref_patch in reference_patches:
+            reference_hash = cv2.img_hash.pHash(ref_patch)[0]
+            for lr,hr in table:
+                # lr_t = cv2.cvtColor(lr, cv2.COLOR_RGB2BGR)
+                p = cv2.img_hash.pHash(lr)[0]
+                distance = sum([bin(x ^ y).count('1') for x, y in zip(reference_hash, p)])
+                # distance = sim(ref_patch,lr)
+                # # print(distance)
+                patch_queue.put(PatchItem(lr, hr, distance))
+
+        end2 = time.time()
+        print("phash time cost: ",end2-end)
+
         patches = []
-        candidate = self.candidates[random.randrange(0, len(self.candidates))]
-        # candidate_size = len(list(candidate.iterdir()))
-        # print(candidate_size)
-        frame_id = random.randrange(0, 30)#  high resolution frames
-        # print(str(candidate / f'{str(frame_id).zfill(4)}.png'))
-
-        frame = cv2.imread(str(candidate / f'{str(frame_id).zfill(4)}.png'))
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        height, width, _ = frame.shape
-        height, width = height // self.scale, width // self.scale
-        lr = cv2.resize(frame, (width, height), interpolation=cv2.INTER_CUBIC)
-
-        patch_hash_table = json.loads(open("patch_hash_x2/" + str(candidate)[11:] + f'/{str(frame_id).zfill(4)}.txt').read())
-        nums = int(len(patch_hash_table)*0.1)
-        i = random.randrange(0,30)
-        xy = patch_hash_table[i]['xy']
-        lr_patch = lr[xy[0]:xy[0] + self.patch_size, xy[1]:xy[1] + self.patch_size]
-        hr_patch = frame[xy[0] * self.scale:(xy[0] + self.patch_size) * self.scale,
-                   xy[1] * self.scale:(xy[1] + self.patch_size) * self.scale]
-        patches.append((lr_patch, hr_patch))
+        for i in range(self.candidate_patch_length):
+        # for i in range(60):
+            item = patch_queue.get()
+            if self.repeat:
+                # for _ in range(2):
+                    patches.append((item.lr, item.hr))
+            # Image.fromarray(item.hr).save("simliar_patches/hr/" + str(i) + ".png")
+            # Image.fromarray(item.lr).save("simliar_patches/lr/" + str(i) + ".png")
 
         return patches
+
+
+class RandomSelector2:
+    def __init__(self,scale):
+        # self.candidates = list(Path(args.candidates).iterdir())
+        self.candidates = list(Path("online_data").iterdir())
+        self.patch_size = 48 # 64
+        self.scale = scale
 
     def select_patches(self) -> List[Tuple[np.ndarray, np.ndarray]]:
         patches = []
@@ -354,14 +411,16 @@ class RandomSelector2:
                 frame_id = random.randrange(0, 10)  # high resolution frames
                 # print(str(candidate / f'{str(frame_id).zfill(4)}.png'))
 
-                frame = cv2.imread(str(candidate / f'{str(frame_id).zfill(4)}.png'))
+                frame = cv2.imread(str("online_data/" + f'{str(frame_id).zfill(4)}.png'))
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 height, width, _ = frame.shape
                 height, width = height // self.scale, width // self.scale
                 lr = cv2.resize(frame, (width, height), interpolation=cv2.INTER_CUBIC)
 
+                # patch_hash_table = json.loads(
+                #     open("patch_hash_x2/" + str(candidate)[11:] + f'/{str(frame_id).zfill(4)}.txt').read())
                 patch_hash_table = json.loads(
-                    open("patch_hash_x2/" + str(candidate)[11:] + f'/{str(frame_id).zfill(4)}.txt').read())
+                    open("online_data_patch_x"+str(self.scale) + f'/{str(frame_id).zfill(4)}.txt').read())
                 nums = int(len(patch_hash_table) * 0.1)
                 # i = random.randrange(0, 20)
                 for i in range(3):
